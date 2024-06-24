@@ -54,6 +54,6 @@ for protein in proteins:
     else:
         print(response.status_code)
 
-new_df = pd.DataFrame(found_motifs, columns=[uniprot_column,'motif'])
+new_df = pd.DataFrame(found_motifs.items(), columns=[uniprot_column,'SLiM'])
 df.merge(new_df, how='left', on=uniprot_column).to_excel('/'.join(file.split('/')[0:-1]) + file.split('/')[-1].split('.')[0]+'motif search.xlsx')
 
