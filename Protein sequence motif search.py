@@ -25,18 +25,20 @@ def search_for_motif(sequence, motif):
   #but the position can be used to search again on the remainder of the sequence if desired.
 
     motif = motif.split('-')
-    motif_length = sum([len(i) if i[0] !='[' else 1 for i in motif])
-    sequence_length = len(sequence)
-    for i in range(sequence_length):
-        list1 = []
-        if sequence_length-i>=motif_length:
-            j = i
-            for motif_element in motif:
-                j+= len(motif_element) if motif_element[0] != '[' else 1
-                list1.append(test_motif_element(sequence[i:j], motif_element))
-                i=j
-            if all(list1):
-                return i-motif_length
+    solid_elements = [i for i in motif if i[0] not in {'[', 'x'}]
+    if all(element in sequence for element in solid_elements):
+      motif_length = sum([len(i) if i[0] !='[' else 1 for i in motif])
+      sequence_length = len(sequence)
+      for i in range(sequence_length):
+          list1 = []
+          if sequence_length-i>=motif_length:
+              j = i
+              for motif_element in motif:
+                  j+= len(motif_element) if motif_element[0] != '[' else 1
+                  list1.append(test_motif_element(sequence[i:j], motif_element))
+                  i=j
+              if all(list1):
+                  return i-motif_length
     return False
 
 
