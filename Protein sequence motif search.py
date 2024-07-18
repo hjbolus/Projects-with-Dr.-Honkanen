@@ -1,60 +1,147 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Jul 17 08:07:39 2024
+
+@author: harrisbolus
+"""
+
 import requests
 import pandas as pd
 import time
+from functools import lru_cache
 
-motifs = ['LSPI-x-E', '[LCVM]-SPI-x-E', '[LVMIFC]-SP-[ILVM]-x-E', 'L-TPI-x-E', '[LCVM]-TPI-x-E', '[LCVMIF]-TP-[ILVM]-x-E'] #SLiMs
-file = '/.../.../... .xlsx'
-uniprot_column = ...
+uniprot_list = ['uniprot1', 'uniprot2', '...']
 
-df = pd.read_excel(file)
-proteins = df[uniprot_column] #column with Uniprot IDs
+motifs = ['LSPI-x-E', 
+          '[LCVM]-SPI-x-E', 
+          '[LVMIFC]-SP-[ILVM]-x-E',
+          'L-TPI-x-E', 
+          '[LCVM]-TPI-x-E', 
+          '[LCVMIF]-TP-[ILVM]-x-E'
+          ]
 
-def test_motif_element(characters, motif_element):
-  #boolean test for a match between a given character and a motif element
+def test_motif_element(characters: str, motif_element: str) -> bool:
     if motif_element == 'x':
         return True
     elif motif_element[0] == '[':
-        assert len(characters)==1, print(characters, motif_element)
+        assert len(characters)==1 and len(motif_element)>2, print(f'characters {characters} is too long to match the single motif range, or motif element {motif_element} is too short')
         return any(characters==element for element in motif_element[1:-1])
     else:
-        return all(characters[i]==motif_element[i] for i in range(len(motif_element)))
+        try:
+            return all(characters[i]==motif_element[i] for i in range(len(motif_element)))
+        except:
+            print(f' checking if {characters} match {motif_element}')
 
-def search_for_motif(sequence, motif):
-  #searches for a complete match (according to test_motif_element()) in any frame of a given sequence. 
-  #If found, returns the position of the first AA in the motif. This returns only the first occurrence, 
-  #but the position can be used to search again on the remainder of the sequence if desired.
+def fits_motif(frame: str, motif: list) -> bool:
+    assert isinstance(motif, list)
+    assert isinstance(frame, str)
+    if len(frame) == sum([len(i) if i[0] !='[' else 1 for i in motif]):
+        matches = []
+        position = 0
+        for element in motif:
+            
+            if element[0] == '[':
+                element_length = 1
+            elif element == 'x':
+                position+=1
+                matches.append(True)
+                continue
+            else:
+                element_length = len(element)
+            matches.append(test_motif_element(frame[position:position+element_length], element))
+            position += element_length
+        return all(matches)
+    else:
+        return False        
 
-    motif = motif.split('-')
-    solid_elements = [i for i in motif if i[0] not in {'[', 'x'}]
+def search_for_motif_in_full_sequence(sequence: str, motif: list) -> tuple:
+    solid_elements = [i for i in motif if i[0] not in {'[', ']', 'x'}]
     if all(element in sequence for element in solid_elements):
-      motif_length = sum([len(i) if i[0] !='[' else 1 for i in motif])
-      sequence_length = len(sequence)
-      for i in range(sequence_length):
-          list1 = []
-          if sequence_length-i>=motif_length:
-              j = i
-              for motif_element in motif:
-                  j+= len(motif_element) if motif_element[0] != '[' else 1
-                  list1.append(test_motif_element(sequence[i:j], motif_element))
-                  i=j
-              if all(list1):
-                  return i-motif_length
+        motif_length = sum([len(i) if i[0] !='[' else 1 for i in motif])
+        sequence_length = len(sequence)
+        for i in range(sequence_length):
+            if sequence_length-i>=motif_length:
+                frame = sequence[i:i+motif_length]
+                if fits_motif(frame, motif):
+                    return (frame, i)
     return False
 
+@lru_cache(maxsize=len(motifs))
+def get_reference_element(motif: tuple) -> str:
+    assert isinstance(motif, tuple)
+    longest = ('', 0)
+    for i in range(len(motif)):
+        element = motif[i]
+        if element[0] not in {'[', ']', 'x'}:
+            if len(element) > len(longest[0]):
+                longest = (element, i)
+    return longest
 
-found_motifs = {protein: [] for protein in proteins}
-for protein in proteins:
-    time.sleep(0.1)
-    response = requests.get(f'https://rest.uniprot.org/uniprotkb/{protein}.txt')
-    if response.status_code == 200:
-        sequence = response.text.split('SEQUENCE')[-1].split(';')[-1].replace('\n','').replace(' ','').replace('/','')
-        for motif in motifs:
-            if position:=search_for_motif(sequence, motif):
-                found_motifs[protein].append((position, motif))
-                print(protein, position, motif)
-                break #remove if a comprehensive search is desired
+def find_positions_of_reference_element_in_sequence(reference_element_tuple: tuple, sequence: str) -> list:
+    reference_element, reference_position_in_motif = reference_element_tuple
+    reference_element_len = len(reference_element)
+    
+    reference_positions_in_sequence = []
+    if reference_element and reference_element in sequence:
+        pieces = sequence.split(reference_element)
+        read_frame = 0
+        for piece in pieces[:-1]:
+            read_frame+=len(piece)
+            reference_positions_in_sequence.append(read_frame+1)
+            read_frame+=reference_element_len
+        return reference_positions_in_sequence
     else:
-        print(response.status_code)
+        return []
 
-new_df = pd.DataFrame(found_motifs.items(), columns=['accession','SLiM'])
-df.merge(new_df, how='left', on='accession').to_excel('/'.join(file.split('/')[0:-1]) + '/' + file.split('/')[-1].split('.')[0]+' motif search 062424.xslx')
+def find_frames(sequence: str, motif: list) -> list:
+    reference_element, reference_position_in_motif = get_reference_element(tuple(motif))
+    frames = []
+    if reference_element[0]:
+        candidate_positions = find_positions_of_reference_element_in_sequence((reference_element, reference_position_in_motif), sequence)
+        for candidate_position in candidate_positions:
+            start = (candidate_position - reference_position_in_motif) - 1
+            end = start + sum([len(i) if i[0] !='[' else 1 for i in motif])
+            frames.append((sequence[start:end], start))
+        return frames
+    else:
+        return None
+    
+def search_for_motif(sequence:str, motif:str) -> list:
+    motif = motif.split('-')
+    frames = find_frames(sequence, motif)
+    if frames:
+        instances = []
+        for frame in frames:
+            if fits_motif(frame[0], motif):
+                instances.append(frame)
+        return instances if instances else False
+    else:
+        return False
+
+proteins = {}
+for uniprot in uniprot_list:
+    print(uniprot)
+    time.sleep(0.1)
+    attempts = 0
+    response = requests.get(f'https://rest.uniprot.org/uniprotkb/{uniprot}.txt')
+
+    while response.status_code != 200:
+        if attempts < 5:
+            attempts+=1
+            time.sleep(.2)
+            response = requests.get(f'https://rest.uniprot.org/uniprotkb/{uniprot}.txt')
+        else:
+            result = ('redo')
+    
+    sequence = response.text.split(';')[-1].replace('\n','').replace(' ','').replace('/','')
+    for motif in motifs:
+        results = search_for_motif(sequence, motif)
+        if results:
+            for result in results:
+                position = result[-1]
+                if uniprot in proteins:
+                    if not position in proteins[uniprot]:
+                        proteins[uniprot][position] = (motif, result[0])
+                else:
+                    proteins[uniprot] = {position: (motif, result[0])}
