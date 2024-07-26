@@ -13,6 +13,8 @@ from functools import lru_cache
 
 uniprot_list = ['uniprot1', 'uniprot2', '...']
 
+#Variable regions can be indicated with an 'x' if any amino acid is acceptable at a position, or a bracketed series of acceptable ones.
+#An unbracketed single letter abbreviation, or a series of them, is interpreted literally (as an invariant region), and should be separated from variable regions by a dash.
 motifs = ['LSPI-x-E', 
           '[LCVM]-SPI-x-E', 
           '[LVMIFC]-SP-[ILVM]-x-E',
@@ -132,7 +134,7 @@ for uniprot in uniprot_list:
             time.sleep(.2)
             response = requests.get(f'https://rest.uniprot.org/uniprotkb/{uniprot}.txt')
         else:
-            result = ('redo')
+            continue
     
     sequence = response.text.split(';')[-1].replace('\n','').replace(' ','').replace('/','')
     for motif in motifs:
