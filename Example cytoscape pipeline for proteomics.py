@@ -1,6 +1,8 @@
+import py4cytoscape as py4
+import time
+from math import pi, log
 import pandas as pd
 import csv
-import py4cytoscape as py4
 import requests
 
 #--------------parameters-----------------
@@ -21,6 +23,11 @@ data_name = 'PPP5C prot run 2'
 skiplist = ['description', 'Human immunodeficiency virus 1 infection', 'Prostate cancer','Human T-cell leukemia virus 1 infection','Pathogenic Escherichia coli infection','Viral carcinogenesis','Alcoholism','Bacterial invasion of epithelial cells','Endometrial cancer','Salmonella infection','Proteoglycans in cancer','Hepatocellular carcinoma','Herpes simplex infection','Choline metabolism in cancer']
 
 #------------define string query function and trend finder-------------------
+
+def fibonacci_of(n):
+    if n in {0, 1}:  # Base case
+        return n
+    return fibonacci_of(n - 1) + fibonacci_of(n - 2)
 
 def getfromstring(method, inputs):                                  #method can be 'get_string_ids' or 'network'
     string_api_url = 'https://version-11-5.string-db.org/api'
@@ -110,15 +117,42 @@ except TypeError:
 for i in pathway_list:
     py4.create_group_by_column(i, column='pathway', value=i)
 
-#Add edges between pathways
-group_list = pd.DataFrame([py4.get_group_info(i) for i in py4.list_groups()['groups']])
+#arrange groups
+node_table = py4.commands.cyrest_post(operation='commands/node/get attribute')['data']
 
-pathway_edges = pd.merge(final_nodes.loc[:,['pathway','id']], all_edges, how='inner', left_on='id', right_on='source').drop('id', axis=1)
-pathway_edges = pd.merge(final_nodes.loc[:,['pathway','id']], pathway_edges, how='inner', left_on='id', right_on='target', suffixes=('_target', '_source')).drop_duplicates(subset=['pathway_source','pathway_target']).drop(['id','source','target'], axis=1)
-pathway_edges = pathway_edges[pathway_edges['pathway_source']!=pathway_edges['pathway_target']]
+for group in py4.list_groups()['groups']:
+    group = py4.get_group_info(group)['name']
+    print(group)
+    protein_nodes = [f'uniqueID:{i["uniqueID"]}' for i in node_table if (i['pathway'] == group and i['uniqueID'])]
 
-done = set()
-for i in pathway_edges.values:
-    if (i[0],i[1]) not in done:
-        py4.networks.add_cy_edges([str(group_list[group_list['name'] == i[0]]['group'].values[0]),str(group_list[group_list['name'] == i[1]]['group'].values[0])])
-        done.add((i[1],i[0]))
+    py4.commands.cyrest_post(operation='commands/layout/attribute-circle', body={'nodeList':','.join(protein_nodes)+',gene name:'+group, 'spacing':'0'})
+
+    start = 0
+    layer = 1
+    while start < len(protein_nodes):
+        diff = fibonacci_of(i+6)
+        end = start+diff
+        if end > len(protein_nodes):
+            end = len(protein_nodes)
+        if end == len(protein_nodes)-1:
+            end+=1
+        n = end-start
+        correction = 1
+        if diff != n:
+            if n == 3:
+                correction = 1.9
+            elif n >= 6:
+                if n < 9:
+                    j = 0
+                    layer+=1
+                elif n < 16:
+                    j = 0
+                elif n > 15:
+                    j = 1
+                for k in [1.5, 1.333, 1.25, 1.1, 1.05][j:layer]:
+                    correction = correction*k
+
+        py4.commands.cyrest_post(operation='commands/layout/attribute-circle', body={'nodeList':','.join(protein_nodes[start:end]), 'spacing':100*correction})
+        diff+=1
+        layer+=1
+        start=end
