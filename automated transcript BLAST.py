@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Performs a BLASTn using the NCBI core_nt database for a list of transcripts.
 """
 Created on Sat Oct 19 11:03:45 2024
 
