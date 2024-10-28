@@ -12,23 +12,26 @@ import py4cytoscape as py4
 import requests
 
 #--------------parameters-----------------
-    #This is the file from a WebGestalt pathway enrichment analysis that says "enrichment_results_wg_result..."
+    # This is the file from a WebGestalt pathway enrichment analysis that says "enrichment_results_wg_result..."
 webgestalt_file = '/.../enrichment_results_wg_result ... .txt'
 
-    #These are attributes of the excel file with your proteomics data. Set modsites_column = False if you're using proteomics rather than phosphoproteomics
+    # These are attributes of the excel file with your proteomics data. Set modsites_column = False if you're using proteomics rather than phosphoproteomics
 excel_file = '/.../... .xlsx'
 excel_sheet = '...'
 modsites_column = False
 uniprot_column = '...'
 abundance_column = '...'
 
-    #This is just a name that will be used to label output
+    # This is just a name that will be used to label output
 data_name = '...'
 
-    #Keep 'description' in this list. Otherwise, these should be names of pathways that you think are artifacts of the cell line background.
+    # Identifier you would like to present to STRING-db
+caller_identity = '...'
+
+    # Keep 'description' in this list. Otherwise, these should be names of pathways that you think are artifacts of the cell line background.
 skiplist = ['description']
 
-#------------define string query function and trend finder-------------------
+#------------a few functions-------------------
 
 def getfromstring(method, inputs):                                  #method can be 'get_string_ids' or 'network'
     string_api_url = 'https://string-db.org/api'
@@ -38,7 +41,7 @@ def getfromstring(method, inputs):                                  #method can 
     'species' : 9606, # species NCBI identifier
     'limit' : 1, # only one identifier per input protein
     'echo_query' : 1, # see your input identifiers in the output
-    'caller_identity' : 'harris_bolus'}
+    'caller_identity' : caller_identity}
     request_url = '/'.join([string_api_url, output_format, method])
     results = requests.post(request_url, data=params)
     return(results)
