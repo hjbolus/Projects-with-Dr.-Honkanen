@@ -21,7 +21,10 @@ directories = ['/Users/.../.../',]
 output_file = '/Users/.../... .xlsx'
 
 # Reference list of refseq IDs (to exclude cDNA, synthetic constructs, BAC library entries, etc). 
-# Since I'm comparing to transcriptomics data, I only need RNA identifiers. Gene and protein identifiers are also available.
+#     If you want to exclude cDNA, synthetic constructs, BAC library entries, etc., provide the NCBI
+#     ftp gene2refseq file as a text file, linked in the README. Otherwise, set to False.
+#     Since I'm comparing to transcriptomics data, I only need RNA identifiers. Gene and protein 
+#     identifiers are also available.
 all_refseq_ids = '/Users/.../... .txt'
 
 #---------------------------------------------------
