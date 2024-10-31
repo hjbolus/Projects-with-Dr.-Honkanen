@@ -20,7 +20,8 @@ directories = ['/Users/.../.../',]
 # What do you want to name the output excel file?
 output_file = '/Users/.../... .xlsx'
 
-# Reference list of refseq IDs (to exclude cDNA, synthetic constructs, BAC library entries, etc)
+# Reference list of refseq IDs (to exclude cDNA, synthetic constructs, BAC library entries, etc). 
+# Since I'm comparing to transcriptomics data, I only need RNA identifiers. Gene and protein identifiers are also available.
 all_refseq_ids = '/Users/.../... .txt'
 
 #---------------------------------------------------
