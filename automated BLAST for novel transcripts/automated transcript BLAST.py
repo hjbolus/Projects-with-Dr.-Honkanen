@@ -59,14 +59,14 @@ def get_exon_sequences(transcript_id: str) -> dict:
     return exon_sequences
 
 def antisense(sequence: str) -> str:
-    # returns the reverse complement of the given sequence
+    """returns the reverse complement of the given sequence"""
     return ''.join([nucleotide_pairs[i] for i in sequence[::-1]])
 
 def generate_dictionary_of_completed_transcripts(filenames: str) -> dict:
-    # Allows you to skip previously BLASTed transcripts without editing your source file. 
-    # If you get a timeout or other error, you can copy and paste the names of the files 
-    # previously generated into a single string separated by \n. Copy the dict
-    # and set it as the value of the variable "done" above.
+    """Allows you to skip previously BLASTed transcripts without editing your source file. 
+    If you get a timeout or other error, you can copy and paste the names of the files 
+    previously generated into a single string separated by \n. Copy the dict and set it 
+    as the value of the variable "done" above."""
     a = filenames.replace('.zip','').replace(' exon','')
     b = [i.split(' ') for i in a.split('\n')]
     c = set(i[0] for i in b)
