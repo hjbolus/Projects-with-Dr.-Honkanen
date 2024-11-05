@@ -10,29 +10,18 @@ import zipfile
 import os
 import json
 import pandas as pd
-from ast import literal_eval
-
+from BLAST_accession_annotations import annotate_from_accession
 #---------------------------------------------------
 
 # List of directories to parse BLAST files from
-directories = ['/Users/.../.../',]
+directories = ['/Users/harrisbolus/Desktop/Research/Dr. Honkanen/Nanopore data/exon blast results/novel transcript & protein blast results/antisense/',]
 
 # What do you want to name the output excel file?
-output_file = '/Users/.../... .xlsx'
-
-# Reference list of refseq IDs (to exclude cDNA, synthetic constructs, BAC library entries, etc). 
-#     If you want to exclude cDNA, synthetic constructs, BAC library entries, etc., provide the NCBI
-#     ftp gene2refseq file as a text file, linked in the README. Otherwise, set to False.
-#     Since I'm comparing to transcriptomics data, I only need RNA identifiers. Gene and protein 
-#     identifiers are also available.
-all_refseq_ids = '/Users/.../... .txt'
+output_file = '/Users/harrisbolus/Desktop/Research/Dr. Honkanen/Nanopore data/exon blast results/nsc hek blast results (antisense) 110424.xlsx'
 
 #---------------------------------------------------
 
-if __name__ == '__main__':
-    with open(all_refseq_ids) as f:
-        refseq_ids = literal_eval(''.join(f.readlines()))
-        
+if __name__ == '__main__':      
     row_list = []
     for directory in directories:
         print(directory)
@@ -53,9 +42,7 @@ if __name__ == '__main__':
             hit_list = data['BlastOutput2']['report']['results']['search']['hits']
     
             for entry in hit_list:
-                descriptions = [i for i in entry['description'] if i['accession'] in refseq_ids]
-                if not descriptions:
-                    continue
+                descriptions = entry['description']
                 hsps = entry['hsps']
     
                 plus_strand_evalues = [i['evalue'] for i in hsps if i['hit_strand'] == 'Plus' and i['evalue'] < 0.05]
@@ -71,13 +58,18 @@ if __name__ == '__main__':
                     top_minus_strand_hit = False
     
                 if top_plus_strand_hit or top_minus_strand_hit:
+                    accession_ids = [i['accession'] for i in descriptions]
+                    id_annotations = set([annotate_from_accession(i) for i in accession_ids])
+                    
                     row = {'transcript': transcript,
                        'exon number': exon_number,
                        'index': entry['num'],
-    
+
                        # descriptions
-                       'refseq id': ', '.join([i['accession'] for i in descriptions]),
-                       'description': (description:=' | '.join([i['title'] for i in descriptions if (' ' not in i['title'] or 'human' not in i['title'])])),
+                       'accession': ' | '.join(accession_ids),
+                       'description': ' | '.join([i['title'] for i in descriptions]),
+                       'record source':  ' | '.join([i[0] for i in id_annotations]),
+                       'record type': '| '.join([i[1] for i in id_annotations]),
     
                        # top plus strand hit
                        'bit_score (plus strand)': top_plus_strand_hit['bit_score'] if top_plus_strand_hit else 'NA',
