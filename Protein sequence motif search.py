@@ -26,10 +26,10 @@ motifs = ['LSPI-x-E',
 # ----end parameters----
 
 def test_motif_element(characters: str, motif_element: str) -> bool:
-    # Given a string of characters and a single motif element with the same AA length, returns True if the characters 
-    # are an acceptable instantiation of the motif element, false otherwise.
-    # The motif element will be either an entire invariant region or a single-AA section of a variable region.
-        #ex: for the motif '[LCVM]-SPI-x-E', the motif elements will be checked in order as '[LCVM]', 'SPI', 'x', 'E'.
+    """Given a string of characters and a single motif element with the same AA length, returns True if the characters 
+    are an acceptable instantiation of the motif element, false otherwise.
+    The motif element will be either an entire invariant region or a single-AA section of a variable region.
+        ex: for the motif '[LCVM]-SPI-x-E', the motif elements will be checked in order as '[LCVM]', 'SPI', 'x', 'E'."""
     
     if motif_element == 'x':
         return True
@@ -43,7 +43,7 @@ def test_motif_element(characters: str, motif_element: str) -> bool:
             print(f'error checking if {characters} match {motif_element}')
 
 def fits_motif(frame: str, motif: list) -> bool:
-    # Given a frame (a substring of a sequence) and a motif, checks if the frame instantiates the motif elementwise.
+    """Given a frame (a substring of a sequence) and a motif, checks if the frame instantiates the motif elementwise."""
     
     assert isinstance(motif, list)
     assert isinstance(frame, str)
@@ -67,8 +67,8 @@ def fits_motif(frame: str, motif: list) -> bool:
         return False        
 
 def search_for_motif_in_full_sequence(sequence: str, motif: list) -> tuple:
-    # Not used. Rather than comparing a small number of frames from the sequence chosen using reference elements of motifs,
-    # slides along the sequence to consider all frames.
+    """Not used. Rather than comparing a small number of frames from the sequence chosen using reference elements of motifs,
+    slides along the sequence to consider all frames."""
     
     solid_elements = [i for i in motif if i[0] not in {'[', ']', 'x'}]
     if all(element in sequence for element in solid_elements):
@@ -83,11 +83,11 @@ def search_for_motif_in_full_sequence(sequence: str, motif: list) -> tuple:
 
 @lru_cache(maxsize=len(motifs))
 def get_reference_element(motif: tuple) -> str:
-    # Given a motif as a tuple (the string having been split at '-'), returns a double (e, i) where e is the longest substring of the 
-    # motif that may be used to quickly assess compatibility with a substring of the sequence, and i is the position in the motif as
-    # a tuple.
-    # For example, since for the motif 'LSPI-x-e' any string that does not contain 'LSPI' is not a candidate match, the reference
-    # element will be 'LSPI'. This will be used to find frames that other functions will assess for a match.
+    """Given a motif as a tuple (the string having been split at '-'), returns a double (e, i) where e is the longest substring of the 
+    motif that may be used to quickly assess compatibility with a substring of the sequence, and i is the position in the motif as
+    a tuple.
+    For example, since for the motif 'LSPI-x-e' any string that does not contain 'LSPI' is not a candidate match, the reference
+    element will be 'LSPI'. This will be used to find frames that other functions will assess for a match."""
     
     assert isinstance(motif, tuple)
     longest = ('', 0)
@@ -99,8 +99,8 @@ def get_reference_element(motif: tuple) -> str:
     return longest
 
 def find_positions_of_reference_element_in_sequence(reference_element_tuple: tuple, sequence: str) -> list:
-    # Given a reference element and a sequence, returns a list of positions in the sequence matching the reference element,
-    # if there are any.
+    """Given a reference element and a sequence, returns a list of positions in the sequence matching the reference element,
+    if there are any."""
 
     reference_element, reference_position_in_motif = reference_element_tuple
     reference_element_len = len(reference_element)
@@ -118,8 +118,8 @@ def find_positions_of_reference_element_in_sequence(reference_element_tuple: tup
         return []
 
 def find_frames(sequence: str, motif: list) -> list:
-    # Given a protein sequence and a motif (that has been split at '-'), returns a list of frames from the sequence that could
-    # possibly match the motif. Each frame is a double consisting of a substring of the sequence and its starting position.
+    """Given a protein sequence and a motif (that has been split at '-'), returns a list of frames from the sequence that could
+    possibly match the motif. Each frame is a double consisting of a substring of the sequence and its starting position."""
     
     reference_element, reference_position_in_motif = get_reference_element(tuple(motif))
     frames = []
@@ -134,9 +134,9 @@ def find_frames(sequence: str, motif: list) -> list:
         return None
     
 def search_for_motif(sequence:str, motif:str) -> list:
-    # Accepts a protein sequence and a single motif to check for, as described above.
-    # For every instance of the motif found in the sequence, returns a list of n instances of the form [(m_1, p_1), ..., (m_n, p_n)], 
-    # where m_i is a substring of the sequence that matches the motif and p_i is the position of the first amino acid
+    """Accepts a protein sequence and a single motif to check for, as described above.
+    For every instance of the motif found in the sequence, returns a list of n instances of the form [(m_1, p_1), ..., (m_n, p_n)], 
+    where m_i is a substring of the sequence that matches the motif and p_i is the position of the first amino acid."""
     
     motif = motif.split('-')
     frames = find_frames(sequence, motif)
@@ -150,7 +150,7 @@ def search_for_motif(sequence:str, motif:str) -> list:
         return False
 
 def get_sequence_from_uniprot(uniprot_id: str) -> str:
-    #Given a Uniprot id, returns the protein's sequence from Uniprot as a string.
+    """Given a Uniprot id, returns the protein's sequence from Uniprot as a string."""
     
     time.sleep(0.1)
     attempts = 0
