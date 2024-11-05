@@ -14,10 +14,10 @@ from BLAST_accession_annotations import annotate_from_accession
 #---------------------------------------------------
 
 # List of directories to parse BLAST files from
-directories = ['/Users/harrisbolus/Desktop/Research/Dr. Honkanen/Nanopore data/exon blast results/novel transcript & protein blast results/antisense/',]
+directories = ['/Users/.../',]
 
 # What do you want to name the output excel file?
-output_file = '/Users/harrisbolus/Desktop/Research/Dr. Honkanen/Nanopore data/exon blast results/nsc hek blast results (antisense) 110424.xlsx'
+output_file = '/Users/.../... .xlsx'
 
 #---------------------------------------------------
 
