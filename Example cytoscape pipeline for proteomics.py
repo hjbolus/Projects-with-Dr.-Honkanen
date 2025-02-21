@@ -12,7 +12,7 @@ import py4cytoscape as py4
 import requests
 
 #--------------parameters-----------------
-    # This is the file from a WebGestalt pathway enrichment analysis that says "enrichment_results_wg_result..."
+    # This is the file from a WebGestalt pathway enrichment analysis titled "enrichment_results_wg_result..."
 webgestalt_file = '/.../enrichment_results_wg_result ... .txt'
 
     # These are attributes of the excel file with your proteomics data. Set modsites_column = False if you're using proteomics rather than phosphoproteomics
