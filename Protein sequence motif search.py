@@ -8,6 +8,8 @@ Created on Fri Feb 21 09:22:41 2025
 import requests, sys, json, re, time
 import pandas as pd
 
+# Given a list of uniprot IDs and motifs to search for (in regex format), returns a dictionary mapping positions to motifs and their matching
+# subsequences.
 # Variable regions can be indicated with a period '.' if any amino acid is acceptable at a position, or a bracketed series of acceptable ones.
 # An unbracketed single letter abbreviation, or a series of them, is interpreted literally (as an invariant region).
 # 'L[ST]PI.E' is equivalent to 'L-[ST]-P-I-x-E' in Prosite notation and matches 'LSPI.E' and 'LTPI.E' where '.' is anything but a space.
