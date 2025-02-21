@@ -5,7 +5,7 @@ Created on Fri Feb 21 09:22:41 2025
 
 @author: harrisbolus
 """
-import requests, sys, json, re
+import requests, sys, json, re, time
 import pandas as pd
 
 # Variable regions can be indicated with a period '.' if any amino acid is acceptable at a position, or a bracketed series of acceptable ones.
@@ -15,7 +15,7 @@ import pandas as pd
 # to least specific, as shown here.
 motifs = [
 re.compile(r'L[ST]PI.E'),
-re.compile(r'[LCVM][ST]PI.E')
+re.compile(r'[LCVM][ST]PI.E'),
 re.compile(r'[LVMIFC][ST]P[ILVM].E')
 ]
 
