@@ -4,14 +4,16 @@
 Created on Tue Oct 21 20:04:07 2025
 
 @author: harrisbolus
+
+Some phosphoproteomics analysis platforms, like PTM-SEA, KSEA App, and Kinase Library require site-level phosphoproteomics data. If your data is peptide-level, it can be converted to site-level using this script.
 """
 import pandas as pd
 import numpy as np
 
 #----------------------------params----------------------------------
 
-input_file = {'workbook': '/Users/harrisbolus/Desktop/Research/Dr. Honkanen/PP5 MCF7 : HEK KO/PP5_summary.xlsx',
-              'sheet': 'phos_protein corrected'}
+input_file = {'workbook': '.../phosphoproteomics.xlsx',
+              'sheet': 'protein corrected phosphoproteomics '}
 
 output_file = '.../... site-level phosphoproteomics.xlsx'
 
