@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Nov 20 13:06:17 2025
+
+@author: harrisbolus
+The outputs of KSEA App can be used alongside your phosphoproteomics data to create node and edge files suitable for display in Cytoscape.
+This is a useful way to display signaling networks suggested by the analysis.
+"""
+
+import pandas as pd
+#--------------------------params--------------------------
+# step 1: load phos, kinase scores, and k-s links
+phos = pd.read_excel('... site-level phosphoproteomics.xlsx')
+ksl = pd.read_csv('... KSEA Kinase-Substrate Links.csv')
+ks = pd.read_csv('... KSEA Kinase Scores.csv')
+
+# enter the names of relevant columns in your phosphoproteomics data:
+id_column = 'gene_name'
+modsite_column = 'modsites'
+pval_column = 'pvalue HEK KO/WT'
+logFC_column = 'log2 FC HEK KO/WT'
+
+# what folder should the output go to?
+output_path = '...'
+#----------------------------------------------------------
+
+# step 2: filter for relevant / significant data
+ksl = ksl[['Kinase.Gene', 'Substrate.Gene', 'Substrate.Mod']]
+phos = phos[phos[pval_column] < 0.05][[id_column, modsite_column, logFC_column, pval_column]]
+ks = ks[ks['FDR'] < 0.05][['Kinase.Gene','Enrichment']]
+kinases = set(ks['Kinase.Gene'])
+
+# step 3: make a list of all proteins in k-s links
+nodes = set.union(set(ksl['Kinase.Gene']), set(ksl['Substrate.Gene']))
+
+# step 4: make node table by pulling in sig phos data for every protein in k-s links
+node_table = phos[phos[id_column].isin(nodes)]
+node_table = node_table.merge(ks, left_on=id_column, right_on='Kinase.Gene', how='outer')
+node_table[id_column] = node_table[id_column].fillna(node_table["Kinase.Gene"])
+node_table = node_table.drop('Kinase.Gene', axis=1)
+
+# step 5: make edge table by filtering k-s links for 1) sig kinases from k scores 2) sig substrates from phos
+edge_table = ksl[ksl['Kinase.Gene'].isin(ks['Kinase.Gene'])][['Kinase.Gene','Substrate.Gene']].drop_duplicates()
+edge_table = edge_table[edge_table['Substrate.Gene'].isin(node_table['gene_name'])]
+
+node_table.to_excel(output_path+'/KSEA nodes.xlsx', index=False)
+edge_table.to_excel(output_path+'/KSEA edges.xlsx', index=False)
