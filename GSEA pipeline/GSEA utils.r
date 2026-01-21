@@ -699,9 +699,7 @@ plot_merged_gsea <- function(df, gs, path, filename, x_label, y_label, x_name, y
   
     png(filename=paste(path, "/", filename, " merged GSEA plot", ".png", sep=""), width=2500, height=1700, res=300)
     print(p)
-    dev.off()
-    ggsave(paste(path, "/", filename, " merged GSEA plot", ".svg", sep=""), p, width = 8.33, height = 5.667)
-    
+    dev.off()    
 }
 
 if (!exists("mirna_gs", envir = globalenv())) {
