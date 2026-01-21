@@ -1,4 +1,4 @@
-# helper functions and statements for HEK E198K GSEA pipeline
+# helper functions and statements for GSEA pipeline
 
 needed <- c("msigdbr", "fgsea", "dplyr", "edgeR", "ggplot2", "stringr", "poolr")
 to_install <- needed[!needed %in% installed.packages()[, "Package"]]
