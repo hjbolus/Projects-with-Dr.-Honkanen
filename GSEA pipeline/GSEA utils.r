@@ -1,8 +1,9 @@
-# helper functions and statements for GSEA pipeline
+# helper functions and statements for HEK E198K GSEA pipeline
 
 needed <- c("msigdbr", "fgsea", "dplyr", "edgeR", "ggplot2", "stringr", "poolr")
 to_install <- needed[!needed %in% installed.packages()[, "Package"]]
 if (length(to_install)) install.packages(to_install, repos = "https://cloud.r-project.org")
+# fgsea/msigdbr are on CRAN; if you prefer Bioc, you can install from Bioconductor too.
 
 library(msigdbr)
 library(fgsea)
@@ -17,10 +18,12 @@ library(biomaRt)
 library(WebGestaltR)
 library(ggrepel)
 
-# provide a table from BioMart mapping ensembl Gene IDs to gene names if you plan to compare results between phosphoproteomics and transcriptomics. Alternatively, you could use the biomaRt package.
-biomart_table <- read_excel("... /biomart table.xlsx", 
-                                        col_types = c(...)
-                           )
+# When plotting volcano, include independent pathways among top 10 positive and top 10 negative NES and add an asterisk in front of independent pathways: 362
+
+biomart_table <- read_excel("~/Desktop/Research/Dr. Honkanen/Reference tables/biomart table 012625.xlsx", 
+                                        col_types = c("text", "skip", "skip", 
+                                                      "skip", "skip", "skip", "text", "skip", 
+                                                      "skip", "skip", "skip"))
 
 wrap.it <- function(x, len)
 { 
@@ -247,17 +250,17 @@ default_fgsea <- function(gs, ranks, scoreType = "std") {
   return(fgsea_res)
 }
 
-trim_gs <- function(gs, ranks) {
+trim_gs <- function(gs, ranks, pct=0.2) {
   gs <- gs[sapply(gs, function(gs) {
     n_gs = length(gs)
     n_ranks = length(ranks)
-    length(intersect(gs, names(ranks))) > max(10, ceiling(0.5*n_gs))
+    length(intersect(gs, names(ranks))) > max(10, ceiling(pct*n_gs))
   })]
   return(gs)
 }
 
-run_and_plot_fgsea <- function(genesets, ranks, scoreType = "std") {
-  genesets <- trim_gs(gs=genesets, ranks=ranks)
+run_and_plot_fgsea <- function(genesets, ranks, scoreType = "std", pct=0.2) {
+  genesets <- trim_gs(gs=genesets, ranks=ranks, pct=pct)
   fgsea_res <- default_fgsea(genesets, ranks, scoreType)
   
   if (is_listcolumn_all_ensembl(fgsea_res$leadingEdge)) {
@@ -269,7 +272,6 @@ run_and_plot_fgsea <- function(genesets, ranks, scoreType = "std") {
     fgsea_res$leadingEdge.GeneName <- fgsea_res$leadingEdge
     fgsea_res$leadingEdge <- NULL
   }
-  sig <- fgsea_res[fgsea_res$pval < 0.05]
   independent_pathways <- collapsePathways(fgseaRes = fgsea_res[fgsea_res$pval < 0.05],
                           stats = ranks,
                           pathways = genesets,
@@ -277,6 +279,7 @@ run_and_plot_fgsea <- function(genesets, ranks, scoreType = "std") {
                           )
   ind <- fgsea_res[fgsea_res$pathway %in% independent_pathways$mainPathways]
   fgsea_res$ind <- fgsea_res$pathway %in% independent_pathways$mainPathways
+  sig <- fgsea_res[fgsea_res$pval < 0.05]
   top10 <- fgsea_res[order(fgsea_res$padj, decreasing=FALSE), ][1:10, ]
 
   plot <- plotGseaTable(
@@ -318,10 +321,22 @@ wsc <- function(results, gs, pval_cutoff=0.05, topN=10) {
 save_sig_enrichment_plots <- function(results, genesets, ranks, path, name) {
   newpath <- file.path(paste(path, name, sep=""))
   dir.create(newpath)
+
+  df <- results$all
+  
+  #individual enrichment plots
+  sig_pathways <- df[df$padj < 0.05]$pathway
+  filtered_genesets <- genesets[names(genesets) %in% sig_pathways]
+  for (gs in names(filtered_genesets)) {
+    png(filename=paste(newpath, "/", gs, ".png", sep=""), height=750, width=1250, res=300)
+    print(plotEnrichment(filtered_genesets[[gs]], ranks))
+    dev.off()
+  }
   
   # save excel of sig paths
   results$sig <- convert_listcols_to_char(results$sig)
   write_xlsx(results$sig, paste(newpath, "/", name, ".xlsx", sep=""))
+  save(results, file=paste(newpath, "/", name, ".RData", sep=""))
   
   # gsea plot
   if (length(results$top10$pathway) > 0) {
@@ -337,16 +352,13 @@ save_sig_enrichment_plots <- function(results, genesets, ranks, path, name) {
   print(results$plot)
   dev.off()
   }
-  df <- results$all
   
-  #individual enrichment plots
-  sig_pathways <- df[df$padj < 0.05]$pathway
-  filtered_genesets <- genesets[names(genesets) %in% sig_pathways]
-  for (gs in names(filtered_genesets)) {
-    png(filename=paste(newpath, "/", gs, ".png", sep=""), height=750, width=1250, res=300)
-    print(plotEnrichment(filtered_genesets[[gs]], ranks))
-    dev.off()
-  }
+  df$pathway <- ifelse(
+    isTRUE(df$ind) | (!is.na(df$ind) & df$ind),
+    paste0("*", df$pathway),
+    df$pathway
+  )
+  df$pathway <- wrap.it(df$pathway, 25)
   
   # volcano plot
   df$`-log10 p-value` <- -1 * log10(df$pval)
@@ -354,22 +366,50 @@ save_sig_enrichment_plots <- function(results, genesets, ranks, path, name) {
   df$`Leading edge size` <- df$size
   df$`BH-adjusted p-value` <- df$padj
   df <- df %>% mutate(sig = padj <= 0.05)
-  if (length(df[df$ind == TRUE]$pathway) <= 10) {
-    df$label <- ifelse(df$ind == TRUE, wrap.it(df$pathway, 25), NA)
-  } else {
-    wsc_res <- wsc(df[df$ind == TRUE], genesets, topN=10)
-    df$label <- ifelse(df$pathway %in% wsc_res$topSets, wrap.it(df$pathway, 25), NA)
-  }
 
+  # initialize labels column
+  df$label <- NA_character_
+  
+  # eligibility
+  eligible <- !is.na(df$pval) & df$pval < 0.05 & !is.na(df$NES)
+  
+  pick_labels <- function(idx, n = 10) {
+    if (!length(idx)) return(integer(0))
+    
+    # independent first
+    idx1 <- idx[df$ind[idx]]
+    idx1 <- idx1[order(df$pval[idx1], na.last = TRUE)]
+    chosen <- head(idx1, n)
+    
+    # fill remainder by lowest p-values
+    if (length(chosen) < n) {
+      idx2 <- setdiff(idx, chosen)
+      idx2 <- idx2[order(df$pval[idx2], na.last = TRUE)]
+      chosen <- c(chosen, head(idx2, n - length(chosen)))
+    }
+    
+    chosen
+  }
+  
+  # positive NES
+  pos_idx <- which(eligible & df$NES > 0)
+  pos_labels <- pick_labels(pos_idx, 8)
+  df$label[pos_labels] <- df$pathway[pos_labels]
+  
+  # negative NES
+  neg_idx <- which(eligible & df$NES < 0)
+  neg_labels <- pick_labels(neg_idx, 8)
+  df$label[neg_labels] <- df$pathway[neg_labels]
+  
   p <- ggplot() +
-    # ----------------------
+  # ----------------------
   # NON-SIGNIFICANT POINTS (padj >= 0.15)
   # ----------------------
   
   geom_point(
     data = subset(df, !sig),
     aes(
-      x    = `signed log2 NES`,
+      x    = NES,#`signed log2 NES`,
       y    = `-log10 p-value`,
       color = `BH-adjusted p-value`,
       size  = `Leading edge size`
@@ -393,7 +433,7 @@ save_sig_enrichment_plots <- function(results, genesets, ranks, path, name) {
     data = subset(df, sig),
     aes(fill = `BH-adjusted p-value`,, 
         size = `Leading edge size`,
-        x    = `signed log2 NES`,
+        x    = NES,#`signed log2 NES`,
         y    = `-log10 p-value`),
     shape = 21,
     color = "#6D0026",
@@ -423,23 +463,34 @@ save_sig_enrichment_plots <- function(results, genesets, ranks, path, name) {
   print(p)
   dev.off()
   
-  p <- p + geom_label_repel(
-    data = subset(df, !is.na(label)),
-    aes(
-      x     = `signed log2 NES`,
-      y     = `-log10 p-value`,
-      label = label
-    ),
-    size              = 1.5,
-    nudge_y           = 0.3,
-    force             = 10,
-    box.padding       = 0.5,
-    point.padding     = 0,
-    min.segment.length = 0,
-    max.time = 60,
-    alpha = 0.75,
-    color="black"
-  ) 
+  p <- p +
+    scale_x_continuous(expand = expansion(mult = 0.10)) +
+    scale_y_continuous(expand = expansion(mult = 0.10)) +
+    ggrepel::geom_label_repel(
+      data = subset(df, !is.na(label)),
+      aes(x = NES, y = `-log10 p-value`, label = label),
+      
+      # don't silently drop labels
+      max.overlaps = Inf,
+      
+      # give the solver space + time
+      max.time = 120,
+      max.iter = 1e6,
+      
+      # increase separation
+      box.padding   = 0.8,
+      point.padding = 0.2,
+      
+      # push labels apart; reduce pull-back crowding
+      force      = 1,
+      force_pull = 1,
+      
+      # styling
+      size = 1.2,
+      alpha = 0.5,
+      color = "black",
+      min.segment.length = 0.1
+    )
   
   png(filename=paste(newpath, "/volcano plot labeled ", name, ".png", sep=""), width=2000, height=1600, res=300)
   print(p)
@@ -484,78 +535,173 @@ merge_two_models <- function(x, y, on='Ensembl', suffixes=c('.x','.y')) {
     }
   
   df$size.intersect <- mapply(length, intersect_col)
-  df$overlap_coefficient <- sign(df[[NES.x]]) * sign(df[[NES.y]]) * df$size.intersect / pmin(mapply(length, df[[leadingEdge.x]]), mapply(length, df[[leadingEdge.y]]))
+  df$overlap_coefficient <- df$size.intersect / pmin(mapply(length, df[[leadingEdge.x]]), mapply(length, df[[leadingEdge.y]]))
 
   return(df)
 }
 
-plot_merged_gsea <- function(df, gs, path, name) {
-
-  # filter for all pval < 0.05
-  pval_cols <- grep("^pval", names(df), value = TRUE)
-  df <- df[ rowSums(df[, ..pval_cols] < 0.05) == length(pval_cols) ]
-  if (length(df$pathway) > 0) {
-    #plot all and plot the WSC pathways: 
-    for (i in 1:2) {
-      if (i == 1) {
-        suffix <- ''
-      } else {
-        if (length(df$pathway) > 15) {
-          suffix <- ' short'
-          df$rank <- apply(df[, ..pval_cols], 1, stouffer_method)*abs(df$overlap_coefficient)
-          df <- df[order(df$rank), ]
-          df <- df[1:15]
-        }
-      }
-    
-    df$pathway <- wrap.it(df$pathway, 50)
-    p <- ggplot(df, aes(
-      x = reorder(pathway, overlap_coefficient),
-      y = overlap_coefficient
-    )) +
-      
-      geom_segment(
-        aes(x = pathway, xend = pathway, y = 0, yend = overlap_coefficient),
-        color = "#645A9D"
-      ) +
-      
-      geom_point(
-        aes(fill = size.intersect,
-            ),
-        size = 10,
-        shape = 21,
-        color = "#312271",
-        stroke = 0.3,
-        alpha = 0.8,
-      ) +
-      
-      paletteer::scale_fill_paletteer_c(
-        "grDevices::Purples 2",
-        oob = scales::squish,
-        name = "Intersection Size",
-        direction = -1
-      ) +
-      
-      theme_light() +
-      coord_flip() +
-      theme(
-        panel.grid.major.y = element_blank(),
-        panel.border = element_blank(),
-        axis.ticks.y = element_blank()
-      ) + 
-      
-      labs(
-        x = "Pathway",   # new x-axis label
-        y = "Signed Overlap Coefficient"                # new y-axis label
-      )
+plot_merged_gsea <- function(df, gs, path, filename, x_label, y_label, x_name, y_name) { 
   
-    height <- 1000 + length(df$pathway)*75
+  ## --- Column discovery (two runs) ---
+  pval_cols <- grep("^pval\\.", names(df), value = TRUE)
+  suffixes  <- unique(sub("^pval\\.", "", pval_cols))
+  stopifnot(length(suffixes) == 2)
+  
+  suf_x <- suffixes[1]
+  suf_y <- suffixes[2]
+  
+  NES_x <- paste0("NES.",  suf_x)
+  NES_y <- paste0("NES.",  suf_y)
+  FDR_x <- paste0("padj.", suf_x)
+  FDR_y <- paste0("padj.", suf_y)
+  
+  ## --- Labels & tiers ---
+  both   <- "FDR < 0.05 in both"
+  only_x <- paste0(x_name, " FDR < 0.05 Only")
+  only_y <- paste0(y_name, " FDR < 0.05 Only")
+  
+  df$pathway <- wrap.it(df$pathway, 25)
+  stopifnot(length(df$pathway) > 0)
+  
+  ## --- Indicator rows (any ind.* TRUE) ---
+  ind_cols <- grep("^ind\\.", names(df), value = TRUE)
+  ind_any  <- if (length(ind_cols)) rowSums(df[, ..ind_cols] == TRUE, na.rm = TRUE) > 0 else rep(FALSE, nrow(df))
+  
+  ## --- FDR handling (robust numeric) ---
+  fdr_x   <- suppressWarnings(as.numeric(as.character(df[[FDR_x]])))
+  fdr_y   <- suppressWarnings(as.numeric(as.character(df[[FDR_y]])))
+  fdr_min <- pmin(fdr_x, fdr_y, na.rm = TRUE); fdr_min[is.infinite(fdr_min)] <- NA_real_
+  
+  sig_any <- (fdr_x < 0.05) | (fdr_y < 0.05)
+  sig_any[is.na(sig_any)] <- FALSE
+  
+  ## --- Pick labels: up to 10 per quadrant among significant rows, ind_any first ---
+  df$label <- NA_character_
+  
+  pick_labels <- function(idx, n = 10) {
+    if (!length(idx)) return(integer(0))
+    idx_ind <- idx[ind_any[idx]]
+    chosen  <- head(idx_ind[order(fdr_min[idx_ind], na.last = TRUE)], n)
+    if (length(chosen) < n) {
+      idx_rest <- setdiff(idx, chosen)
+      chosen <- c(chosen, head(idx_rest[order(fdr_min[idx_rest], na.last = TRUE)], n - length(chosen)))
+    }
+    chosen
+  }
+  
+  nes_x <- df[[NES_x]]
+  nes_y <- df[[NES_y]]
+  
+  quadrants <- list(
+    pp = which(sig_any & nes_x > 0 & nes_y > 0),
+    pn = which(sig_any & nes_x > 0 & nes_y < 0),
+    np = which(sig_any & nes_x < 0 & nes_y > 0),
+    nn = which(sig_any & nes_x < 0 & nes_y < 0)
+  )
+  
+  for (idx in quadrants) {
+    chosen <- pick_labels(idx, n = 10)
+    df$label[chosen] <- df$pathway[chosen]
+  }
+  
+  ## --- Label repel nudges (radial outward) ---
+  df_lab <- df[!is.na(label), ]
+  
+  r <- sqrt(df_lab[[NES_x]]^2 + df_lab[[NES_y]]^2)
+  r[r == 0] <- NA_real_
+  
+  nudge_scale     <- 0.4
+  df_lab$nudge_x  <- (df_lab[[NES_x]] / r) * nudge_scale
+  df_lab$nudge_y  <- (df_lab[[NES_y]] / r) * nudge_scale
+  
+  ## --- Significance tier for outline legend ---
+  df$sig_tier <- ifelse(fdr_x < 0.05 & fdr_y < 0.05, both,
+                        ifelse(fdr_x < 0.05 & fdr_y >= 0.05, only_x,
+                               ifelse(fdr_x >= 0.05 & fdr_y < 0.05, only_y, NA)))
+  
+  df$sig_tier <- factor(df$sig_tier, levels = c(only_x, only_y, both))
+  
+  outline_cols <- setNames(c("blue", "red", "purple"), c(only_x, only_y, both))
+  
+  ## --- Plot ---
+  p <- ggplot(df, aes(x = .data[[NES_x]], y = .data[[NES_y]])) +
     
-    png(filename=paste(path, "/", name, " merged GSEA plot", suffix, ".png", sep=""), , width=3000, height=height, res=300)
+    # not significant in either
+    geom_point(
+      data = df[fdr_x >= 0.05 & fdr_y >= 0.05, ],
+      aes(size = size.intersect, fill = overlap_coefficient),
+      shape = 21, stroke = 0, alpha = 0.5
+    ) + # significant in x only
+    geom_point(
+      data = df[fdr_x < 0.05 & fdr_y >= 0.05, ],
+      aes(size = size.intersect, fill = overlap_coefficient, color = sig_tier),
+      shape = 21, stroke = 0.5, alpha = 0.75
+    ) + # significant in y only
+    geom_point(
+      data = df[fdr_x >= 0.05 & fdr_y < 0.05, ],
+      aes(size = size.intersect, fill = overlap_coefficient, color = sig_tier),
+      shape = 21, stroke = 0.5, alpha = 0.75
+    ) + # significant in both
+    geom_point(
+      data = df[fdr_x < 0.05 & fdr_y < 0.05, ],
+      aes(size = size.intersect, fill = overlap_coefficient, color = sig_tier),
+      shape = 21, stroke = .7, alpha = 0.75
+    ) +
+    
+    scale_color_manual(
+      name = "BH-adjusted p (FDR)",
+      values = outline_cols,
+      drop = FALSE,
+      na.translate = FALSE
+    ) +
+    guides(
+      size = guide_legend(override.aes = list(color = "black", stroke = 0.8, alpha = 1))
+    ) +
+    
+    geom_hline(yintercept = 0, color = "grey") +
+    geom_vline(xintercept = 0, color = "grey") +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey") +
+    
+    labs(
+      x = paste0(x_label, " NES"),
+      y = paste0(y_label, " NES"),
+      title = paste0("GSEA results for ", x_name, " and ", y_name),
+      size = "Intersection size",
+      fill = "Overlap coefficient"
+    ) +
+    
+    theme_light() +
+    theme(
+      plot.title = element_text(hjust = 0.5)#,
+    #  plot.margin = margin(10, 30, 10, 30)
+    ) +
+    
+    #coord_cartesian(clip = "off") +
+    scale_x_continuous(expand = expansion(mult = 0.08)) +
+    scale_y_continuous(expand = expansion(mult = 0.08)) +
+    
+    ggrepel::geom_label_repel(
+      data = df_lab,
+      aes(x = .data[[NES_x]], y = .data[[NES_y]], label = label),
+      nudge_x = df_lab$nudge_x,
+      nudge_y = df_lab$nudge_y,
+      force_pull = 0,
+      force = 10,
+      box.padding = 0.5,
+      point.padding = 0,
+      min.segment.length = 0.1,
+      max.time = 60,
+      size = 1,
+      alpha = 0.6,
+      color = "black",
+      fill = "white"
+    )
+  
+    png(filename=paste(path, "/", filename, " merged GSEA plot", ".png", sep=""), width=2500, height=1700, res=300)
     print(p)
     dev.off()
-    }
-  }
+    ggsave(paste(path, "/", filename, " merged GSEA plot", ".svg", sep=""), p, width = 8.33, height = 5.667)
+    
 }
 
 if (!exists("mirna_gs", envir = globalenv())) {
