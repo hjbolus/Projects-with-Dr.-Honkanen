@@ -3,7 +3,6 @@
 needed <- c("msigdbr", "fgsea", "dplyr", "edgeR", "ggplot2", "stringr", "poolr")
 to_install <- needed[!needed %in% installed.packages()[, "Package"]]
 if (length(to_install)) install.packages(to_install, repos = "https://cloud.r-project.org")
-# fgsea/msigdbr are on CRAN; if you prefer Bioc, you can install from Bioconductor too.
 
 library(msigdbr)
 library(fgsea)
@@ -17,8 +16,6 @@ library(writexl)
 library(biomaRt)
 library(WebGestaltR)
 library(ggrepel)
-
-# When plotting volcano, include independent pathways among top 10 positive and top 10 negative NES and add an asterisk in front of independent pathways: 362
 
 biomart_table <- read_excel("~/Desktop/Research/Dr. Honkanen/Reference tables/biomart table 012625.xlsx", 
                                         col_types = c("text", "skip", "skip", 
@@ -333,7 +330,7 @@ save_sig_enrichment_plots <- function(results, genesets, ranks, path, name) {
     dev.off()
   }
   
-  # save excel of sig paths
+  # save excel of sig paths and .RData file for all results
   results$sig <- convert_listcols_to_char(results$sig)
   write_xlsx(results$sig, paste(newpath, "/", name, ".xlsx", sep=""))
   save(results, file=paste(newpath, "/", name, ".RData", sep=""))
@@ -362,7 +359,6 @@ save_sig_enrichment_plots <- function(results, genesets, ranks, path, name) {
   
   # volcano plot
   df$`-log10 p-value` <- -1 * log10(df$pval)
-  df$`signed log2 NES` <- sign(df$NES)*log2(abs(df$NES))
   df$`Leading edge size` <- df$size
   df$`BH-adjusted p-value` <- df$padj
   df <- df %>% mutate(sig = padj <= 0.05)
@@ -513,14 +509,10 @@ merge_two_models <- function(x, y, on='Ensembl', suffixes=c('.x','.y')) {
   #on can be 'Ensembl' or 'GeneName'
   df <- merge(x$all,y$all, by='pathway', suffixes=suffixes)
   
-  NES.x <- paste('NES',suffixes[1],sep='')
-  NES.y <- paste('NES',suffixes[2],sep='')
   leadingEdgeEnsembl.x <- paste('leadingEdge.Ensembl', suffixes[1],sep='')
   leadingEdgeGeneName.x <- paste('leadingEdge.GeneName', suffixes[1],sep='')
   leadingEdgeEnsembl.y <- paste('leadingEdge.Ensembl',suffixes[2],sep='')
   leadingEdgeGeneName.y <- paste('leadingEdge.GeneName',suffixes[2],sep='')
-  pval.x <- paste('pval',suffixes[1],sep='')
-  pval.y <- paste('pval',suffixes[2],sep='')
   
   df$intersect.Ensembl <- mapply(intersect, df[[leadingEdgeEnsembl.x]], df[[leadingEdgeEnsembl.y]], SIMPLIFY=FALSE)
   df$intersect.GeneName <- mapply(intersect, df[[leadingEdgeGeneName.x]], df[[leadingEdgeGeneName.y]], SIMPLIFY=FALSE)
@@ -567,7 +559,7 @@ plot_merged_gsea <- function(df, gs, path, filename, x_label, y_label, x_name, y
   ind_cols <- grep("^ind\\.", names(df), value = TRUE)
   ind_any  <- if (length(ind_cols)) rowSums(df[, ..ind_cols] == TRUE, na.rm = TRUE) > 0 else rep(FALSE, nrow(df))
   
-  ## --- FDR handling (robust numeric) ---
+  ## --- FDR handling ---
   fdr_x   <- suppressWarnings(as.numeric(as.character(df[[FDR_x]])))
   fdr_y   <- suppressWarnings(as.numeric(as.character(df[[FDR_y]])))
   fdr_min <- pmin(fdr_x, fdr_y, na.rm = TRUE); fdr_min[is.infinite(fdr_min)] <- NA_real_
@@ -614,13 +606,6 @@ plot_merged_gsea <- function(df, gs, path, filename, x_label, y_label, x_name, y
   df_lab$nudge_x  <- (df_lab[[NES_x]] / r) * nudge_scale
   df_lab$nudge_y  <- (df_lab[[NES_y]] / r) * nudge_scale
   
-  ## --- Significance tier for outline legend ---
-  df$sig_tier <- ifelse(fdr_x < 0.05 & fdr_y < 0.05, both,
-                        ifelse(fdr_x < 0.05 & fdr_y >= 0.05, only_x,
-                               ifelse(fdr_x >= 0.05 & fdr_y < 0.05, only_y, NA)))
-  
-  df$sig_tier <- factor(df$sig_tier, levels = c(only_x, only_y, both))
-  
   outline_cols <- setNames(c("blue", "red", "purple"), c(only_x, only_y, both))
   
   ## --- Plot ---
@@ -634,17 +619,17 @@ plot_merged_gsea <- function(df, gs, path, filename, x_label, y_label, x_name, y
     ) + # significant in x only
     geom_point(
       data = df[fdr_x < 0.05 & fdr_y >= 0.05, ],
-      aes(size = size.intersect, fill = overlap_coefficient, color = sig_tier),
+      aes(size = size.intersect, fill = overlap_coefficient, color = ),
       shape = 21, stroke = 0.5, alpha = 0.75
     ) + # significant in y only
     geom_point(
       data = df[fdr_x >= 0.05 & fdr_y < 0.05, ],
-      aes(size = size.intersect, fill = overlap_coefficient, color = sig_tier),
+      aes(size = size.intersect, fill = overlap_coefficient, color = ),
       shape = 21, stroke = 0.5, alpha = 0.75
     ) + # significant in both
     geom_point(
       data = df[fdr_x < 0.05 & fdr_y < 0.05, ],
-      aes(size = size.intersect, fill = overlap_coefficient, color = sig_tier),
+      aes(size = size.intersect, fill = overlap_coefficient, color = ),
       shape = 21, stroke = .7, alpha = 0.75
     ) +
     
