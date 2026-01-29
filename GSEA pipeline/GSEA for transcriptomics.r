@@ -49,15 +49,15 @@ if (!exists("nanopore_results_table", envir=globalenv())) {
 }
 
 # calculate ranks
-c(nanopore_results_table, nanopore_ranks_msd) %<-% calc_ranks(
+c(nanopore_results_table, nanopore_ranks_signed_p) %<-% calc_ranks(
   df = nanopore_results_table,
   id_col = 'gene_id',
   logfc_col = 'logFC', 
   p_col = 'PValue',
-  rank_type = 'msd'
+  rank_type = 'signed_p'
 )
 
-# plot ranks against log2FC and -log10(p-value). Available metrics are "signed_p", "pi_stat", and "msd".
+# plot ranks against log2FC and -log10(p-value). Available metrics are "signed_p", "pi_stat", and "signed_p".
 save_gsea_plot(plot_metric(nanopore_results_table, "signed_p"), paste0(output_dir, "nanopore_ranks_signed_p.png"))
 
 # run fGSEA
