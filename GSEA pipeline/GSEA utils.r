@@ -16,11 +16,12 @@ library(writexl)
 library(biomaRt)
 library(WebGestaltR)
 library(ggrepel)
+library(zeallot)
 
-biomart_table <- read_excel("~/Desktop/Research/Dr. Honkanen/Reference tables/biomart table 012625.xlsx", 
-                                        col_types = c("text", "skip", "skip", 
-                                                      "skip", "skip", "skip", "text", "skip", 
-                                                      "skip", "skip", "skip"))
+biomart_table <- read_excel("path to table mapping gene symbols to Ensembl IDs"
+                            col_types = c("text", "skip", "skip", 
+                                          "skip", "skip", "skip", "text", "skip", 
+                                          "skip", "skip", "skip"))
 
 wrap.it <- function(x, len)
 { 
@@ -121,7 +122,7 @@ convert_to_genesets <- function(collection, id_type='ensembl') {
                     ifelse(id_type == 'gene symbol', 'gene_symbol', FALSE))
   
   collection <- split(collection[[id_type]], collection$gs_name)
-
+  
   new_names <- names(collection) |>
     sub(pattern, "", x = _) |>    # remove prefix
     gsub("_", " ", x = _)         # convert underscores to spaces
@@ -134,40 +135,178 @@ convert_to_genesets <- function(collection, id_type='ensembl') {
 combine_and_filter_genesets <- function(gs1, gs2) {
   return(
     rbind(gs1, gs2) %>%
-    filter(!is.na(ensembl_gene) & ensembl_gene != "" & !grepl("UNKNOWN", gs_name)) %>%     # keep only rows with Ensembl IDs present, with a known TF
-    mutate(ensembl_gene = sub("\\.\\d+$", "", ensembl_gene)) %>%                # strip version suffixes like ENSG00000123456.12
-    mutate(gs_name = str_remove(gs_name, "_TARGET_GENES")) %>%                  #replace _TARGET_GENES with ''
-    mutate(gs_name = as.character(gs_name)) %>%                                 # strip first suffix
-    mutate(gs_name = sapply(strsplit(gs_name, "_"), function(x) {
+      filter(!is.na(ensembl_gene) & ensembl_gene != "" & !grepl("UNKNOWN", gs_name)) %>%     # keep only rows with Ensembl IDs present, with a known TF
+      mutate(ensembl_gene = sub("\\.\\d+$", "", ensembl_gene)) %>%                # strip version suffixes like ENSG00000123456.12
+      mutate(gs_name = str_remove(gs_name, "_TARGET_GENES")) %>%                  #replace _TARGET_GENES with ''
+      mutate(gs_name = as.character(gs_name)) %>%                                 # strip first suffix
+      mutate(gs_name = sapply(strsplit(gs_name, "_"), function(x) {
         if (length(x) > 1) paste(head(x, -1), collapse = "_") else x
       })) %>%
-    mutate(gs_name = str_remove(gs_name, "^[ACGTURYKMSWBDHVN]+_")) %>%          # remove motif names anchored to start, followed by an underscore
-    mutate(gs_name = str_remove(gs_name, "_..$"))
+      mutate(gs_name = str_remove(gs_name, "^[ACGTURYKMSWBDHVN]+_")) %>%          # remove motif names anchored to start, followed by an underscore
+      mutate(gs_name = str_remove(gs_name, "_..$"))
   )
+}
+
+split_multiprotein_rows <- function(df, test_col="protein_name", split_cols = c("protein_name", "protein_ref", "protein_accession", "protein_description")) {
+  # Identify rows with multiple proteins (check protein_name for commas)
+  multi_protein_rows <- grepl(",", df[[test_col]])
+  
+  # If no multi-protein rows, return as-is
+  if (!any(multi_protein_rows)) {
+    return(df)
+  }
+  
+  # Split the dataset
+  single_protein_df <- df[!multi_protein_rows, ]
+  multi_protein_df <- df[multi_protein_rows, ]
+  
+  # Process multi-protein rows
+  expanded_rows <- lapply(seq_len(nrow(multi_protein_df)), function(i) {
+    row <- multi_protein_df[i, ]
+    
+    # Split each relevant column by comma
+    split_values <- lapply(split_cols, function(col) {
+      trimws(strsplit(as.character(row[[col]]), ",")[[1]])
+    })
+    names(split_values) <- split_cols
+    
+    # Determine how many proteins are in this row
+    n_proteins <- length(split_values[[test_col]])
+    
+    # Create n_proteins copies of this row
+    expanded <- row[rep(1, n_proteins), ]
+    
+    # Replace the split columns with individual values
+    for (col in split_cols) {
+      expanded[[col]] <- split_values[[col]]
+    }
+    
+    return(expanded)
+  })
+  
+  # Combine all expanded rows
+  expanded_df <- do.call(rbind, expanded_rows)
+  
+  # Combine with single-protein rows and reset row names
+  result <- rbind(single_protein_df, expanded_df)
+  rownames(result) <- NULL
+  
+  return(result)
+}
+
+add_gene_id <- function(df, id_col="protein_description") {
+  # Extract text after GN= and before the next space
+  df$gene_id <- sub(".*GN=([^ ]+).*", "\\1", df[[id_col]])
+  
+  # Handle cases where GN= is not present (set to NA)
+  df$gene_id[!grepl("GN=", df[[id_col]])] <- NA
+  
+  return(df)
+}
+
+calc_pi_stat <- function(df, logfc_col, p_col, abs = FALSE) {
+  
+  df$pi_stat <- df[[logfc_col]] * -log(df[[p_col]], 10)
+  if (abs==TRUE) {
+    df$pi_stat <- abs(df$pi_stat)
+  }
+  
+  return(df)
+}
+
+calc_signed_p <-function(df, logfc_col, p_col, abs = FALSE) {
+  df$signed_p <- sign(df[[logfc_col]]) * -log(df[[p_col]], 10)
+  if (abs==TRUE) {
+    df$signed_p <- abs(df$signed_p)
+  }
+  
+  return(df)
 }
 
 crit_val <- qnorm(0.975)
 
-calc_msd <- function(logFC, p) {
+calc_msd <- function(df, logfc_col, p_col, abs = FALSE) {
   # based on https://www.bmj.com/content/343/bmj.d2090.extract
   # MSD is the minimum value of the 95% confidence interval
+  
+  # Extract the columns
+  logFC <- df[[logfc_col]]
+  p <- df[[p_col]]
+  
   # calculate z-score
   z <- qnorm(1 - p/2)
   
   # calculate standard error
   se <- abs(logFC / z)
   
-  # calculate CI
-  ci_left <- logFC + crit_val * se
-  ci_right <- logFC - crit_val * se
+  # calculate two sides of confidence interval
+  ci_left <- logFC - crit_val * se
+  ci_right <- logFC + crit_val * se
   
-  return(ifelse(abs(ci_left) < abs(ci_right), ci_left, ci_right))
+  if (abs == TRUE) {
+    ci_left <- abs(ci_left)
+    ci_right <- abs(ci_right)
+  }
+  
+  # Add msd column to dataframe
+  df$msd <- ifelse(abs(ci_left) < abs(ci_right), ci_left, ci_right)
+  
+  return(df)
+}
+
+prepare_ranks <- function(df, id_col, rank_col) {
+  #rank_type can be pi_stat, signed_p, or msd at the moment
+  ranks <- df[[rank_col]]
+  names(ranks) <- df[[id_col]]
+  ranks <- ranks[!is.na(ranks)]
+  ranks <- ranks + rank(names(ranks)) * 1e-12 # break ties alphabetically
+  ranks <- tapply(ranks, names(ranks), function(x) x[which.max(abs(x))])
+  sort(ranks, decreasing=TRUE)
+  ranks
+}
+
+calc_ranks <- function(df, id_col, logfc_col, p_col, rank_type, abs = FALSE) {
+  if (rank_type == 'pi_stat') {
+    df <- calc_pi_stat(df = df, 
+                          logfc_col = logfc_col, 
+                          p_col = p_col, 
+                          abs = abs)
+    
+  } else if (rank_type == 'signed_p') {
+    df <- calc_signed_p(df = df, 
+                           logfc_col = logfc_col, 
+                           p_col = p_col, 
+                           abs = abs)
+
+  } else if (rank_type == 'msd') {
+    df <- calc_msd(df = df, 
+                      logfc_col = logfc_col, 
+                      p_col = p_col, 
+                      abs = abs)
+  }
+  
+  ranks <- prepare_ranks(df = df, 
+                         id_col = id_col, rank_col = rank_type)
+  return(list(
+    df = df,
+    ranks = ranks
+  ))
 }
 
 plot_metric <- function(table, metric, x_max = 3, arrow_offset = 0.02, 
                         segment_length = 0.05, arrow_length = 0.1) {
-  # x_max: absolute max for logFC to display
-  # arrow_width: horizontal length of arrows (in data units)
+
+  metric_name <- gsub("_", " ", metric)
+  
+  if (metric_name == "msd") {
+    metric_name <- "MSD"
+  } else if (metric_name == "pi_stat") {
+    metric_name <- "Pi Statistic"
+  } else if (metric_name == "signed_p") {
+    metric_name == "Signed p-value"
+  } else {
+    metric_name <- tools::toTitleCase(metric_name)
+  }
   
   # Clamp x values and flag extreme points
   table2 <- table |>
@@ -220,8 +359,8 @@ plot_metric <- function(table, metric, x_max = 3, arrow_offset = 0.02,
     labs(
       x = "log2 Fold Change",
       y = "-log10(P-value)",
-      color = metric,
-      size = paste("|", metric, "|", sep = ""),
+      color = metric_name,
+      size = paste("|", metric_name, "|", sep = ""),
       title = "log2 FC vs -log10 pvalue"
     )
   
@@ -242,7 +381,7 @@ default_fgsea <- function(gs, ranks, scoreType = "std") {
     minSize  = 15,   # minimum genes in a set
     maxSize  = 500,  # maximum genes in a set
     scoreType = scoreType
-    )
+  )
   fgsea_res <- fgsea_res[order(fgsea_res$padj), ]
   return(fgsea_res)
 }
@@ -270,15 +409,15 @@ run_and_plot_fgsea <- function(genesets, ranks, scoreType = "std", pct=0.2) {
     fgsea_res$leadingEdge <- NULL
   }
   independent_pathways <- collapsePathways(fgseaRes = fgsea_res[fgsea_res$pval < 0.05],
-                          stats = ranks,
-                          pathways = genesets,
-                          pval.threshold = 0.05
-                          )
+                                           stats = ranks,
+                                           pathways = genesets,
+                                           pval.threshold = 0.05
+  )
   ind <- fgsea_res[fgsea_res$pathway %in% independent_pathways$mainPathways]
   fgsea_res$ind <- fgsea_res$pathway %in% independent_pathways$mainPathways
   sig <- fgsea_res[fgsea_res$pval < 0.05]
   top10 <- fgsea_res[order(fgsea_res$padj, decreasing=FALSE), ][1:10, ]
-
+  
   plot <- plotGseaTable(
     pathways = genesets[top10$pathway],
     stats    = ranks,
@@ -318,7 +457,7 @@ wsc <- function(results, gs, pval_cutoff=0.05, topN=10) {
 save_sig_enrichment_plots <- function(results, genesets, ranks, path, name) {
   newpath <- file.path(paste(path, name, sep=""))
   dir.create(newpath)
-
+  
   df <- results$all
   
   #individual enrichment plots
@@ -333,21 +472,20 @@ save_sig_enrichment_plots <- function(results, genesets, ranks, path, name) {
   # save excel of sig paths and .RData file for all results
   results$sig <- convert_listcols_to_char(results$sig)
   write_xlsx(results$sig, paste(newpath, "/", name, ".xlsx", sep=""))
-  save(results, file=paste(newpath, "/", name, ".RData", sep=""))
-  
+
   # gsea plot
   if (length(results$top10$pathway) > 0) {
-  maxlen <- max(nchar(results$top10$pathway))
-  width <- 3000
-  if (!is.na(maxlen)){
-    if (maxlen > 10) {
-    width <- width + (maxlen-10) * 75
+    maxlen <- max(nchar(results$top10$pathway))
+    width <- 3000
+    if (!is.na(maxlen)){
+      if (maxlen > 10) {
+        width <- width + (maxlen-10) * 75
+      }
     }
-  }
-  
-  png(filename=paste(newpath, "/gsea plot ", name, ".png", sep=""), res=300, height=1200, width=width)
-  print(results$plot)
-  dev.off()
+    
+    png(filename=paste(newpath, "/gsea plot ", name, ".png", sep=""), res=300, height=1200, width=width)
+    print(results$plot)
+    dev.off()
   }
   
   df$pathway <- ifelse(
@@ -362,7 +500,7 @@ save_sig_enrichment_plots <- function(results, genesets, ranks, path, name) {
   df$`Leading edge size` <- df$size
   df$`BH-adjusted p-value` <- df$padj
   df <- df %>% mutate(sig = padj <= 0.05)
-
+  
   # initialize labels column
   df$label <- NA_character_
   
@@ -398,7 +536,7 @@ save_sig_enrichment_plots <- function(results, genesets, ranks, path, name) {
   df$label[neg_labels] <- df$pathway[neg_labels]
   
   p <- ggplot() +
-  # ----------------------
+    # ----------------------
   # NON-SIGNIFICANT POINTS (padj >= 0.15)
   # ----------------------
   
@@ -500,8 +638,8 @@ merge_nano_prot <- function(nano, prot) {
   
   df$intersect <- mapply(intersect, df$leadingEdge.Ensembl.nano, df$leadingEdge.Ensembl.prot, SIMPLIFY=FALSE)
   df$size.intersect <- mapply(length, df$intersect)
-  df$overlap_coefficient <- sign(df$NES.nano) * sign(df$NES.prot) * df$size.intersect / pmin(mapply(length, df$leadingEdge.Ensembl.nano), mapply(length, df$leadingEdge.GeneName.prot))
-
+  df$overlap_coefficient <- df$size.intersect / pmin(mapply(length, df$leadingEdge.Ensembl.nano), mapply(length, df$leadingEdge.GeneName.prot))
+  
   return(df)
 }
 
@@ -520,15 +658,15 @@ merge_two_models <- function(x, y, on='Ensembl', suffixes=c('.x','.y')) {
     intersect_col = df$intersect.Ensembl
     leadingEdge.x <- leadingEdgeEnsembl.x
     leadingEdge.y <- leadingEdgeEnsembl.y
-    } else {
+  } else {
     intersect_col = df$intersect.GeneName
     leadingEdge.x <- leadingEdgeGeneName.x
     leadingEdge.y <- leadingEdgeGeneName.y
-    }
+  }
   
   df$size.intersect <- mapply(length, intersect_col)
   df$overlap_coefficient <- df$size.intersect / pmin(mapply(length, df[[leadingEdge.x]]), mapply(length, df[[leadingEdge.y]]))
-
+  
   return(df)
 }
 
@@ -562,7 +700,7 @@ plot_merged_gsea <- function(df, gs, path, filename, x_label, y_label, x_name, y
   ## --- FDR handling ---
   fdr_x   <- suppressWarnings(as.numeric(as.character(df[[FDR_x]])))
   fdr_y   <- suppressWarnings(as.numeric(as.character(df[[FDR_y]])))
-  fdr_min <- pmin(fdr_x, fdr_y, na.rm = TRUE); fdr_min[is.infinite(fdr_min)] <- NA_real_
+  fdr_comb <- fdr_x * fdr_y; fdr_comb[is.infinite(fdr_comb)] <- NA_real_
   
   sig_any <- (fdr_x < 0.05) | (fdr_y < 0.05)
   sig_any[is.na(sig_any)] <- FALSE
@@ -570,13 +708,13 @@ plot_merged_gsea <- function(df, gs, path, filename, x_label, y_label, x_name, y
   ## --- Pick labels: up to 10 per quadrant among significant rows, ind_any first ---
   df$label <- NA_character_
   
-  pick_labels <- function(idx, n = 10) {
+  pick_labels <- function(idx, n = 7) {
     if (!length(idx)) return(integer(0))
     idx_ind <- idx[ind_any[idx]]
-    chosen  <- head(idx_ind[order(fdr_min[idx_ind], na.last = TRUE)], n)
+    chosen  <- head(idx_ind[order(fdr_comb[idx_ind], na.last = TRUE)], n)
     if (length(chosen) < n) {
       idx_rest <- setdiff(idx, chosen)
-      chosen <- c(chosen, head(idx_rest[order(fdr_min[idx_rest], na.last = TRUE)], n - length(chosen)))
+      chosen <- c(chosen, head(idx_rest[order(fdr_comb[idx_rest], na.last = TRUE)], n - length(chosen)))
     }
     chosen
   }
@@ -592,7 +730,7 @@ plot_merged_gsea <- function(df, gs, path, filename, x_label, y_label, x_name, y
   )
   
   for (idx in quadrants) {
-    chosen <- pick_labels(idx, n = 10)
+    chosen <- pick_labels(idx)
     df$label[chosen] <- df$pathway[chosen]
   }
   
@@ -606,31 +744,41 @@ plot_merged_gsea <- function(df, gs, path, filename, x_label, y_label, x_name, y
   df_lab$nudge_x  <- (df_lab[[NES_x]] / r) * nudge_scale
   df_lab$nudge_y  <- (df_lab[[NES_y]] / r) * nudge_scale
   
+  df$sig_tier <- ifelse(fdr_x < 0.05 & fdr_y < 0.05, both,
+                        ifelse(fdr_x < 0.05 & fdr_y >= 0.05, only_x,
+                               ifelse(fdr_x >= 0.05 & fdr_y < 0.05, only_y, NA)))
+  
+  df$sig_tier <- factor(df$sig_tier, levels = c(only_x, only_y, both))
+  
   outline_cols <- setNames(c("blue", "red", "purple"), c(only_x, only_y, both))
   
   ## --- Plot ---
   p <- ggplot(df, aes(x = .data[[NES_x]], y = .data[[NES_y]])) +
     
-    # not significant in either
     geom_point(
       data = df[fdr_x >= 0.05 & fdr_y >= 0.05, ],
       aes(size = size.intersect, fill = overlap_coefficient),
       shape = 21, stroke = 0, alpha = 0.5
-    ) + # significant in x only
+    ) +
     geom_point(
       data = df[fdr_x < 0.05 & fdr_y >= 0.05, ],
-      aes(size = size.intersect, fill = overlap_coefficient, color = ),
-      shape = 21, stroke = 0.5, alpha = 0.75
-    ) + # significant in y only
+      aes(size = size.intersect, fill = overlap_coefficient, color = sig_tier),
+      shape = 21, stroke = 0.3, alpha = 0.75
+    ) +
     geom_point(
       data = df[fdr_x >= 0.05 & fdr_y < 0.05, ],
-      aes(size = size.intersect, fill = overlap_coefficient, color = ),
-      shape = 21, stroke = 0.5, alpha = 0.75
-    ) + # significant in both
+      aes(size = size.intersect, fill = overlap_coefficient, color = sig_tier),
+      shape = 21, stroke = 0.3, alpha = 0.75
+    ) +
     geom_point(
       data = df[fdr_x < 0.05 & fdr_y < 0.05, ],
-      aes(size = size.intersect, fill = overlap_coefficient, color = ),
-      shape = 21, stroke = .7, alpha = 0.75
+      aes(size = size.intersect, fill = overlap_coefficient, color = sig_tier),
+      shape = 21, stroke = .5, alpha = 0.9
+    ) +
+    
+    scale_fill_continuous(
+      limits = c(0, 1),
+      name   = "Overlap coefficient"
     ) +
     
     scale_color_manual(
@@ -643,9 +791,9 @@ plot_merged_gsea <- function(df, gs, path, filename, x_label, y_label, x_name, y
       size = guide_legend(override.aes = list(color = "black", stroke = 0.8, alpha = 1))
     ) +
     
-    geom_hline(yintercept = 0, color = "grey") +
-    geom_vline(xintercept = 0, color = "grey") +
-    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey") +
+    geom_hline(yintercept = 0) +
+    geom_vline(xintercept = 0) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
     
     labs(
       x = paste0(x_label, " NES"),
@@ -658,7 +806,7 @@ plot_merged_gsea <- function(df, gs, path, filename, x_label, y_label, x_name, y
     theme_light() +
     theme(
       plot.title = element_text(hjust = 0.5)#,
-    #  plot.margin = margin(10, 30, 10, 30)
+      #  plot.margin = margin(10, 30, 10, 30)
     ) +
     
     #coord_cartesian(clip = "off") +
@@ -682,74 +830,75 @@ plot_merged_gsea <- function(df, gs, path, filename, x_label, y_label, x_name, y
       fill = "white"
     )
   
-    png(filename=paste(path, "/", filename, " merged GSEA plot", ".png", sep=""), width=2500, height=1700, res=300)
-    print(p)
-    dev.off()    
+  png(filename=paste(path, "/", filename, " merged GSEA plot", ".png", sep=""), width=2500, height=1700, res=300)
+  print(p)
+  dev.off()    
 }
 
 if (!exists("mirna_gs", envir = globalenv())) {
-msigdb_c3_mirna <- msigdbr(species="human",
-                           collection="C3",
-                           subcollection="MIR:MIRDB")
-mirna_gs <- convert_to_genesets(msigdb_c3_mirna, "ensembl")
-mirna_gs_gsymbol <- convert_to_genesets(msigdb_c3_mirna, "gene symbol")
+  msigdb_c3_mirna <- msigdbr(species="human",
+                             collection="C3",
+                             subcollection="MIR:MIRDB")
+  mirna_gs <- convert_to_genesets(msigdb_c3_mirna, "ensembl")
+  mirna_gs_gsymbol <- convert_to_genesets(msigdb_c3_mirna, "gene symbol")
 }
 
 if (!exists("tft_gs", envir = globalenv())) {
-msigdb_c3_gtrd <- msigdbr(species="human",
-                          collection="C3",
-                          subcollection="GTRD")
-msigdb_c3_legacy <- msigdbr(species="human",
+  msigdb_c3_gtrd <- msigdbr(species="human",
                             collection="C3",
-                            subcollection="TFT_LEGACY")
-tft_gs <- combine_and_filter_genesets(msigdb_c3_gtrd, msigdb_c3_legacy) %>% convert_to_genesets("ensembl")
-tft_gs_gsymbol <- combine_and_filter_genesets(msigdb_c3_gtrd, msigdb_c3_legacy) %>% convert_to_genesets("gene symbol")
+                            subcollection="GTRD")
+  msigdb_c3_legacy <- msigdbr(species="human",
+                              collection="C3",
+                              subcollection="TFT_LEGACY")
+  tft_gs <- combine_and_filter_genesets(msigdb_c3_gtrd, msigdb_c3_legacy) %>% convert_to_genesets("ensembl")
+  tft_gs_gsymbol <- combine_and_filter_genesets(msigdb_c3_gtrd, msigdb_c3_legacy) %>% convert_to_genesets("gene symbol")
 }
 
 if (!exists("h_gs", envir = globalenv())) {
-msigdb_h <- msigdbr(species="human",
-                    collection="H")
-h_gs <- convert_to_genesets(msigdb_h, "ensembl")
-h_gs_gsymbol <- convert_to_genesets(msigdb_h, "gene symbol")
+  msigdb_h <- msigdbr(species="human",
+                      collection="H")
+  h_gs <- convert_to_genesets(msigdb_h, "ensembl")
+  h_gs_gsymbol <- convert_to_genesets(msigdb_h, "gene symbol")
 }
 
 if (!exists("reactome_gs", envir = globalenv())) {
-reactome <- msigdbr(species="human",
-                    collection="C2",
-                    subcollection="CP:REACTOME")
-reactome_gs <- convert_to_genesets(reactome, "ensembl")
-reactome_gs_gsymbol <- convert_to_genesets(reactome, "gene symbol")
+  reactome <- msigdbr(species="human",
+                      collection="C2",
+                      subcollection="CP:REACTOME")
+  reactome_gs <- convert_to_genesets(reactome, "ensembl")
+  reactome_gs_gsymbol <- convert_to_genesets(reactome, "gene symbol")
 }
 
 if (!exists("kegg_gs", envir = globalenv())) {
-kegg_legacy <- msigdbr(species="human",
-                      collection="C2",
-                      subcollection="CP:KEGG_LEGACY")
-kegg_gs <- convert_to_genesets(kegg_legacy, "ensembl")
-kegg_gs_gsymbol <- convert_to_genesets(kegg_legacy, "gene symbol")
+  kegg_legacy <- msigdbr(species="human",
+                         collection="C2",
+                         subcollection="CP:KEGG_LEGACY")
+  kegg_gs <- convert_to_genesets(kegg_legacy, "ensembl")
+  kegg_gs_gsymbol <- convert_to_genesets(kegg_legacy, "gene symbol")
 }
 
 if (!exists("gocc_gs", envir = globalenv())) {
-msigdb_go_cc <- msigdbr(species="human",
-                     collection="C5",
-                     subcollection="GO:CC")
-gocc_gs <- convert_to_genesets(msigdb_go_cc, "ensembl")
-gocc_gs_gsymbol <- convert_to_genesets(msigdb_go_cc, "gene symbol")
+  msigdb_go_cc <- msigdbr(species="human",
+                          collection="C5",
+                          subcollection="GO:CC")
+  gocc_gs <- convert_to_genesets(msigdb_go_cc, "ensembl")
+  gocc_gs_gsymbol <- convert_to_genesets(msigdb_go_cc, "gene symbol")
 }
 
 if (!exists("gobp_gs", envir = globalenv())) {
-msigdb_go_bp <- msigdbr(species="human",
-                     collection="C5",
-                     subcollection="GO:BP")
-gobp_gs <- convert_to_genesets(msigdb_go_bp, "ensembl")
-gobp_gs_gsymbol <- convert_to_genesets(msigdb_go_bp, "gene symbol")
+  msigdb_go_bp <- msigdbr(species="human",
+                          collection="C5",
+                          subcollection="GO:BP")
+  gobp_gs <- convert_to_genesets(msigdb_go_bp, "ensembl")
+  gobp_gs_gsymbol <- convert_to_genesets(msigdb_go_bp, "gene symbol")
 }
 
 if (!exists("gomf_gs", envir = globalenv())) {
-msigdb_go_mf <- msigdbr(species="human",
-                     collection="C5",
-                     subcollection="GO:MF")
-gomf_gs <- convert_to_genesets(msigdb_go_mf, "ensembl")
-gomf_gs_gsymbol <- convert_to_genesets(msigdb_go_mf, "gene symbol")
+  msigdb_go_mf <- msigdbr(species="human",
+                          collection="C5",
+                          subcollection="GO:MF")
+  gomf_gs <- convert_to_genesets(msigdb_go_mf, "ensembl")
+  gomf_gs_gsymbol <- convert_to_genesets(msigdb_go_mf, "gene symbol")
 }
 
+gsea_utils_initialized <- TRUE
