@@ -1,17 +1,11 @@
-needed <- c("msigdbr", "fgsea", "dplyr", "edgeR", "ggplot2")
-to_install <- needed[!needed %in% installed.packages()[, "Package"]]
-if (length(to_install)) install.packages(to_install, repos = "https://cloud.r-project.org")
+# load GSEA utils
+if (!exists("gsea_utils_initialized", envir=globalenv())) {source("~/path/to/GSEA utils.r")}
 
-library(msigdbr)
-library(fgsea)
-library(dplyr)
-library(readxl)
-library(edgeR)
-library(ggplot2)
-source("... GSEA utils.r")
-
-# declare output path
-output_path = "..."
+# initialize output directory if needed
+output_dir <- "output/directory/"
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
 
 # load nanopore data (ensembl gene IDs x gene counts for each sample)
 if (!exists("nanopore_results_table", envir=globalenv())) {
@@ -54,73 +48,27 @@ if (!exists("nanopore_results_table", envir=globalenv())) {
   nanopore_results_table <- nanopore_results$table    # data.frame with logFC, logCPM, F, PValue, FDR
 }
 
-# calculate and assign ranks
-nanopore_results_table$pi_score <- nanopore_results_table$logFC * -log(nanopore_results_table$PValue, 10)
-nanopore_ranks <- nanopore_results_table$pi_score
-names(nanopore_ranks) <- nanopore_results_table$gene_id
-nanopore_ranks <- nanopore_ranks + rank(names(nanopore_ranks)) * 1e-12
-sort(nanopore_ranks, decreasing=TRUE)
+# calculate ranks
+c(nanopore_results_table, nanopore_ranks_msd) %<-% calc_ranks(
+  df = nanopore_results_table,
+  id_col = 'gene_id',
+  logfc_col = 'logFC', 
+  p_col = 'PValue',
+  rank_type = 'msd'
+)
 
-# plot rank metric against log2FC and -log10(p-value)
-save_gsea_plot(plot_metric(nanopore_results_table, "pi_score"), paste(output_path, "nanopore pi score.png", sep=''))
+# plot ranks against log2FC and -log10(p-value). Available metrics are "signed_p", "pi_stat", and "msd".
+save_gsea_plot(plot_metric(nanopore_results_table, "signed_p"), paste0(output_dir, "nanopore_ranks_signed_p.png"))
 
-# run fgsea of selected gene sets
-fgsea_nano_tft <- run_and_plot_fgsea(tft_gs, nanopore_ranks)
-fgsea_nano_h <- run_and_plot_fgsea(h_gs, nanopore_ranks)
-fgsea_nano_mirna <- run_and_plot_fgsea(mirna_gs, nanopore_ranks)
-fgsea_nano_rea <- run_and_plot_fgsea(reactome_gs, nanopore_ranks)
-fgsea_nano_k <- run_and_plot_fgsea(kegg_gs, nanopore_ranks)
-fgsea_nano_gobp <- run_and_plot_fgsea(gobp_gs, nanopore_ranks)
-fgsea_nano_gomf <- run_and_plot_fgsea(gomf_gs, nanopore_ranks)
-fgsea_nano_gocc <- run_and_plot_fgsea(gocc_gs, nanopore_ranks)
+# run fGSEA
+nanopore_signed_p_h <- run_and_plot_fgsea(h_gs_gsymbol, nanopore_ranks_signed_p)
 
-# save results
-save_sig_enrichment_plots(results = fgsea_nano_tft, 
-                          genesets = tft_gs, 
-                          ranks = nanopore_ranks, 
-                          path = output_path, 
-                          name = "fgsea_nano_tft")
-                          
-save_sig_enrichment_plots(results = fgsea_nano_h,
-                          genesets = h_gs,
-                          ranks = nanopore_ranks,
-                          path = output_path,
-                          name = "fgsea_nano_h")
+# save figures
+save_sig_enrichment_plots(results = nanopore_signed_p_h,
+                          genesets = h_gs_gsymbol,
+                          ranks = nanopore_ranks_signed_p,
+                          path = output_dir,
+                          name = "nanopore_signed_p_h")
 
-save_sig_enrichment_plots(results = fgsea_nano_mirna,
-                          genesets = mirna_gs,
-                          ranks = nanopore_ranks,
-                          path = output_path,
-                          name = "fgsea_nano_mirna")
-
-save_sig_enrichment_plots(results = fgsea_nano_rea,
-                          genesets = reactome_gs,
-                          ranks = nanopore_ranks,
-                          path = output_path,
-                          name = "fgsea_nano_rea")
-
-save_sig_enrichment_plots(results = fgsea_nano_k,
-                          genesets = kegg_gs,
-                          ranks = nanopore_ranks,
-                          path = output_path,
-                          name = "fgsea_nano_k")
-
-
-save_sig_enrichment_plots(results = fgsea_nano_gobp,
-                          genesets = gobp_gs,
-                          ranks = nanopore_ranks,
-                          path = output_path,
-                          name = "fgsea_nano_gobp")
-
-save_sig_enrichment_plots(results = fgsea_nano_gomf,
-                          genesets = gomf_gs,
-                          ranks = nanopore_ranks,
-                          path = output_path,
-                          name = "fgsea_nano_gomf")
-
-save_sig_enrichment_plots(results = fgsea_nano_gocc,
-                          genesets = gocc_gs,
-                          ranks = nanopore_ranks,
-                          path = output_path,
-                          name = "fgsea_nano_gocc")
-
+# save complete results
+save(nanopore_signed_p_h, file=paste0(output_dir, "nanopore_signed_p_h", ".RData"))
