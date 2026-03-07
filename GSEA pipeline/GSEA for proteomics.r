@@ -27,7 +27,7 @@ c(prot_results_table, prot_ranks_pi_stat) %<-% calc_ranks(
 save_gsea_plot(plot_metric(prot_results_table, "pi_stat"), paste0(output_dir, "prot_ranks_pi_stat.png"))
 
 # run fGSEA
-prot_signed_p_h <- run_and_plot_fgsea(h_gs_gsymbol, prot_ranks_pi_stat)
+prot_pi_stat_h <- run_and_plot_fgsea(h_gs_gsymbol, prot_ranks_pi_stat)
 
 # save figures
 save_sig_enrichment_plots(results = prot_pi_stat_h,
