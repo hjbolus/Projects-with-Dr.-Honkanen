@@ -28,7 +28,7 @@ c(phos_results_table, phos_ranks_pi_stat) %<-% calc_ranks(
 save_gsea_plot(plot_metric(phos_results_table, "pi_stat"), paste0(output_dir, "phos_ranks_pi_stat.png"))
 
 # run fGSEA. scoreType = "pos" is important for phosphoproteomics, where enrichment/depletion does not directly map onto activity
-phos_signed_p_h <- run_and_plot_fgsea(h_gs_gsymbol, phos_ranks_pi_stat, scoreType="pos")
+phos_pi_stat_h <- run_and_plot_fgsea(h_gs_gsymbol, phos_ranks_pi_stat, scoreType="pos")
 
 # save figures
 save_sig_enrichment_plots(results = phos_pi_stat_h,
@@ -38,4 +38,4 @@ save_sig_enrichment_plots(results = phos_pi_stat_h,
                           name = "phos_pi_stat_h")
 
 # save complete results
-save(phos_signed_p_h, file=paste0(output_dir, "phos_pi_stat_h", ".RData"))
+save(phos_pi_stat_h, file=paste0(output_dir, "phos_pi_stat_h", ".RData"))
