@@ -11,8 +11,6 @@ if (!dir.exists(output_dir)) {
 if (!exists("nanopore_results_table", envir=globalenv())) {
   nanopore_df <- read_excel(".../Nanopore DE analysis.xlsx", 
                          sheet = "...", 
-                         range = "...",
-                         col_types = c(...)
                          )
   
   # strip ensembl ID version numbers
@@ -49,26 +47,26 @@ if (!exists("nanopore_results_table", envir=globalenv())) {
 }
 
 # calculate ranks
-c(nanopore_results_table, nanopore_ranks_signed_p) %<-% calc_ranks(
+c(nanopore_results_table, nanopore_ranks_pi_stat) %<-% calc_ranks(
   df = nanopore_results_table,
   id_col = 'gene_id',
   logfc_col = 'logFC', 
   p_col = 'PValue',
-  rank_type = 'signed_p'
+  rank_type = 'pi_stat'
 )
 
 # plot ranks against log2FC and -log10(p-value). Available metrics are "signed_p", "pi_stat", and "signed_p".
-save_gsea_plot(plot_metric(nanopore_results_table, "signed_p"), paste0(output_dir, "nanopore_ranks_signed_p.png"))
+save_gsea_plot(plot_metric(nanopore_results_table, "pi_stat"), paste0(output_dir, "nanopore_ranks_pi_stat.png"))
 
 # run fGSEA
-nanopore_signed_p_h <- run_and_plot_fgsea(h_gs_gsymbol, nanopore_ranks_signed_p)
+nanopore_pi_stat_h <- run_and_plot_fgsea(h_gs_gsymbol, nanopore_ranks_pi_stat)
 
 # save figures
-save_sig_enrichment_plots(results = nanopore_signed_p_h,
+save_sig_enrichment_plots(results = nanopore_pi_stat_h,
                           genesets = h_gs_gsymbol,
-                          ranks = nanopore_ranks_signed_p,
+                          ranks = nanopore_ranks_pi_stat,
                           path = output_dir,
-                          name = "nanopore_signed_p_h")
+                          name = "nanopore_pi_stat_h")
 
 # save complete results
-save(nanopore_signed_p_h, file=paste0(output_dir, "nanopore_signed_p_h", ".RData"))
+save(nanopore_pi_stat_h, file=paste0(output_dir, "nanopore_pi_stat_h", ".RData"))
