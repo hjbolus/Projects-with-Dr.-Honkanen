@@ -37,4 +37,4 @@ save_sig_enrichment_plots(results = prot_pi_stat_h,
                           name = "prot_pi_stat_h")
 
 # save complete results
-save(prot_signed_p_h, file=paste0(output_dir, "prot_pi_stat_h", ".RData"))
+save(prot_pi_stat_h, file=paste0(output_dir, "prot_pi_stat_h", ".RData"))
